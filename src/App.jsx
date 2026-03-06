@@ -86,6 +86,7 @@ export default function App(){
   const [sendOrganizerSummary,setSendOrganizerSummary]=useState(true);
   const nr=useRef(null);
   const fileRef=useRef(null);
+  const historySavedRef=useRef(false);
 
   // --- SESIÓN: cargar al montar ---
   useEffect(()=>{
@@ -104,6 +105,8 @@ export default function App(){
         if(d.emailMsg) setEmailMsg(d.emailMsg);
         if(d.ems) setEms(d.ems);
         if(d.organizerEmail) setOrganizerEmail(d.organizerEmail);
+        if(d.organizerEmailSent !== undefined) setOrganizerEmailSent(d.organizerEmailSent);
+        if(d.sendOrganizerSummary !== undefined) setSendOrganizerSummary(d.sendOrganizerSummary);
       }
       // Cargar historial de localStorage
       const hist = localStorage.getItem(HISTORY_KEY);
@@ -114,9 +117,9 @@ export default function App(){
   // --- SESIÓN: guardar al cambiar estado relevante ---
   useEffect(()=>{
     try {
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems,organizerEmail}));
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems,organizerEmail,organizerEmailSent,sendOrganizerSummary}));
     } catch(e){}
-  },[ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems,organizerEmail]);
+  },[ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems,organizerEmail,organizerEmailSent,sendOrganizerSummary]);
 
   const handleFileImport=(e)=>{
     const file=e.target.files?.[0]; if(!file)return;
@@ -246,7 +249,7 @@ export default function App(){
     const allOk=res.every(a=>ems[a.giver.id]==="ok");
     if(allOk){
       sendOrganizerEmail(ems);
-      saveToHistory();
+      if(!historySavedRef.current){historySavedRef.current=true;saveToHistory();}
     }
   },[ems]);
 
@@ -254,6 +257,7 @@ export default function App(){
     setRes(null);setEms({});setStep("setup");setErr("");setPreviewFor(null);
     setPs([]);setEx([]);setGrp("");setEventDate("");setEventPlace("");setBud("");setEmailMsg("");
     setOrganizerEmail("");setOrganizerEmailSent(false);setSendOrganizerSummary(true);
+    historySavedRef.current=false;
     sessionStorage.removeItem(SESSION_KEY);
   };
 
