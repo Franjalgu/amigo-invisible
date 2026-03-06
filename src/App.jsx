@@ -49,6 +49,11 @@ const Check=()=><Ico s={14} d="M20 6L9 17l-5-5"/>;
 const Star=()=><Ico s={18} d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/>;
 const Upload=()=><Ico s={16} d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>;
 const FileText=()=><Ico s={16} d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8"/>;
+const Refresh=()=><Ico s={14} d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>;
+const Edit=()=><Ico s={14} d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>;
+const Download=()=><Ico s={16} d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>;
+
+const SESSION_KEY = "amigo-invisible-sorteo";
 
 export default function App(){
   const [ps,setPs]=useState([]);
@@ -68,8 +73,38 @@ export default function App(){
   const [ems,setEms]=useState({});
   const [importResult,setImportResult]=useState(null);
   const [previewFor,setPreviewFor]=useState(null);
+  // Nuevo: editar email de destinatario
+  const [editingEmail,setEditingEmail]=useState(null); // giver.id
+  const [editEmailVal,setEditEmailVal]=useState("");
   const nr=useRef(null);
   const fileRef=useRef(null);
+
+  // --- SESIÓN: cargar al montar ---
+  useEffect(()=>{
+    try {
+      const saved = sessionStorage.getItem(SESSION_KEY);
+      if(saved){
+        const d = JSON.parse(saved);
+        if(d.ps) setPs(d.ps);
+        if(d.ex) setEx(d.ex);
+        if(d.res) setRes(d.res);
+        if(d.step) setStep(d.step);
+        if(d.grp) setGrp(d.grp);
+        if(d.eventDate) setEventDate(d.eventDate);
+        if(d.eventPlace) setEventPlace(d.eventPlace);
+        if(d.bud) setBud(d.bud);
+        if(d.emailMsg) setEmailMsg(d.emailMsg);
+        if(d.ems) setEms(d.ems);
+      }
+    } catch(e){}
+  },[]);
+
+  // --- SESIÓN: guardar al cambiar estado relevante ---
+  useEffect(()=>{
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems}));
+    } catch(e){}
+  },[ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems]);
 
   const handleFileImport=(e)=>{
     const file=e.target.files?.[0]; if(!file)return;
@@ -129,6 +164,7 @@ export default function App(){
     if(!r)return setErr("Imposible con estas exclusiones. Quita alguna.");
     setRes(r);setErr("");setStep("done");
   };
+
   const sendOneEmail=async(a)=>{
     setEms(p=>({...p,[a.giver.id]:"go"}));
     try{
@@ -138,8 +174,31 @@ export default function App(){
       else{setEms(p=>({...p,[a.giver.id]:"err"}));setErr("Error enviando email a "+a.giver.name);}
     }catch(e){setEms(p=>({...p,[a.giver.id]:"err"}));setErr("Error de conexion");}
   };
+
   const sendAll=()=>{res.forEach((a,i)=>{setTimeout(()=>sendOneEmail(a),i*400);});};
-  const reset=()=>{setRes(null);setEms({});setStep("setup");setErr("");setPreviewFor(null);};
+
+  // Reenviar email fallido
+  const resendEmail=(a)=>{
+    setEms(p=>({...p,[a.giver.id]:undefined}));
+    setTimeout(()=>sendOneEmail(a),100);
+  };
+
+  // Guardar nuevo email editado
+  const saveEditedEmail=(giverId)=>{
+    if(!editEmailVal||!editEmailVal.includes("@"))return setErr("Email no válido");
+    setRes(prev=>prev.map(a=>a.giver.id===giverId?{...a,giver:{...a.giver,email:editEmailVal}}:a));
+    setEms(p=>({...p,[giverId]:undefined}));
+    setEditingEmail(null);
+    setEditEmailVal("");
+    setErr("");
+  };
+
+  const reset=()=>{
+    setRes(null);setEms({});setStep("setup");setErr("");setPreviewFor(null);
+    setPs([]);setEx([]);setGrp("");setEventDate("");setEventPlace("");setBud("");setEmailMsg("");
+    sessionStorage.removeItem(SESSION_KEY);
+  };
+
   const pn=id=>ps.find(p=>p.id===id)?.name||"?";
 
   const previewEmail=(a)=>{
@@ -154,6 +213,28 @@ export default function App(){
     l.push("");l.push("¡Mucha suerte con el regalo! 🎄");
     return l.join("\n");
   };
+
+  // --- EXPORTAR A EXCEL ---
+  const exportToExcel=()=>{
+    if(!res)return;
+    // Construir CSV con BOM para Excel
+    const rows=[["Nombre","Email","→ Amigo Invisible","Estado"]];
+    res.forEach(a=>{
+      const estado=ems[a.giver.id]==="ok"?"Enviado":ems[a.giver.id]==="err"?"Error":"Pendiente";
+      rows.push([a.giver.name, a.giver.email, a.receiver.name, estado]);
+    });
+    const csv="\uFEFF"+rows.map(r=>r.map(c=>`"${c}"`).join(";")).join("\n");
+    const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=`amigo-invisible${grp?"-"+grp:""}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const allSent = res&&res.length>0&&res.every(a=>ems[a.giver.id]==="ok");
+  const someSent = res&&Object.values(ems).some(s=>s==="ok");
 
   return(
     <>
@@ -186,9 +267,13 @@ export default function App(){
         .Bg{background:${C.goldSoft};color:${C.gold};border:1px solid rgba(212,168,67,.25)}.Bg:hover{background:rgba(212,168,67,.2)}
         .Bo{background:transparent;color:${C.muted};border:1px solid ${C.border}}.Bo:hover{border-color:${C.accent};color:${C.accent}}
         .Bs{background:${C.okSoft};color:${C.ok};border:1px solid rgba(52,211,153,.25)}
+        .Bd{background:rgba(100,100,255,0.1);color:#a0a0ff;border:1px solid rgba(100,100,255,.25)}.Bd:hover{background:rgba(100,100,255,0.2)}
         .BF{width:100%}.BR{display:flex;gap:8px;margin-top:14px}.BR .B{flex:1}
         .BX{width:28px;height:28px;padding:0;border-radius:7px;background:transparent;color:${C.muted};border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:all .2s}
         .BX:hover{color:${C.err};border-color:${C.err};background:${C.errSoft}}
+        .BXs{width:26px;height:26px;padding:0;border-radius:6px;background:transparent;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+        .BXs.re{color:${C.gold}}.BXs.re:hover{background:${C.goldSoft};border-color:rgba(212,168,67,.3)}
+        .BXs.ed{color:${C.muted}}.BXs.ed:hover{color:${C.accent};background:${C.accentSoft};border-color:rgba(232,54,79,.3)}
         .PL{display:flex;flex-direction:column;gap:5px;margin-top:12px}
         .PI{display:flex;align-items:center;gap:9px;padding:9px 11px;background:${C.bg};border-radius:9px;border:1px solid ${C.border};animation:si .3s ease}
         @keyframes si{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
@@ -201,8 +286,13 @@ export default function App(){
         .AI{display:flex;align-items:center;gap:9px;padding:11px 13px;background:${C.bg};border:1px solid ${C.border};border-radius:10px;margin-bottom:5px;animation:si .3s ease;cursor:pointer;transition:border-color .2s}
         .AI:hover{border-color:${C.gold}}
         .AA{color:${C.gold};font-size:1rem;flex-shrink:0}.AN{font-weight:600;font-size:.84rem}
+        .AE{font-size:.68rem;color:${C.muted};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px}
         .EB{font-size:.68rem;font-weight:600;padding:3px 7px;border-radius:7px;margin-left:auto;flex-shrink:0;display:flex;align-items:center;gap:3px}
         .EB.ok{background:${C.okSoft};color:${C.ok}}.EB.go{background:${C.goldSoft};color:${C.gold}}.EB.err{background:${C.errSoft};color:${C.err}}.EB.no{background:${C.bg};color:${C.muted};border:1px solid ${C.border}}
+        .AI-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+        .edit-email-row{padding:8px 13px 10px;background:${C.bg};border:1px solid ${C.accent};border-top:none;border-radius:0 0 10px 10px;margin-top:-5px;margin-bottom:5px;display:flex;gap:8px;align-items:center;animation:si .2s ease}
+        .edit-email-row input{font-size:.78rem;padding:6px 10px}
+        .edit-email-row .B{padding:6px 10px;font-size:.75rem}
         .RH{text-align:center;margin-bottom:16px}.RH h2{font-family:'Crimson Pro',serif;font-size:1.35rem;font-weight:700}
         .BN{font-size:2rem;margin-bottom:5px;animation:bn 1s ease infinite}@keyframes bn{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
         .BT{display:inline-flex;align-items:center;gap:4px;font-family:'Crimson Pro',serif;font-size:.85rem;color:${C.gold};background:${C.goldSoft};padding:3px 10px;border-radius:7px;margin:3px}
@@ -220,6 +310,7 @@ export default function App(){
         .preview-close:hover{color:${C.accent}}
         .lbl{font-size:.7rem;font-weight:600;color:${C.muted};text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
         .fg{margin-bottom:10px}
+        .session-banner{background:${C.goldSoft};border:1px solid rgba(212,168,67,.25);border-radius:10px;padding:9px 13px;font-size:.76rem;color:${C.gold};margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
       `}</style>
       <Snow/>
       <div className="W">
@@ -353,15 +444,35 @@ export default function App(){
               <p style={{fontSize:".7rem",color:C.muted,marginBottom:8}}>Pulsa en una fila para previsualizar el email</p>
               {res.map(a=>(
                 <div key={a.giver.id}>
-                  <div className="AI" onClick={()=>setPreviewFor(previewFor===a.giver.id?null:a.giver.id)}>
+                  <div className="AI" onClick={()=>{if(editingEmail!==a.giver.id)setPreviewFor(previewFor===a.giver.id?null:a.giver.id)}}>
                     <div className="AV">{a.giver.name.charAt(0).toUpperCase()}</div>
-                    <span className="AN">{a.giver.name}</span>
-                    <span className="AA">→</span>
-                    <span className="AN" style={{color:C.gold}}>{a.receiver.name}</span>
-                    <span className={`EB ${ems[a.giver.id]==="ok"?"ok":ems[a.giver.id]==="go"?"go":ems[a.giver.id]==="err"?"err":"no"}`}>
-                      {ems[a.giver.id]==="ok"?<><Check/> Enviado</>:ems[a.giver.id]==="go"?"Enviando...":ems[a.giver.id]==="err"?"Error":<><Mail/> Pendiente</>}
-                    </span>
+                    <div className="info-flex">
+                      <div className="AN">{a.giver.name} <span className="AA">→</span> <span style={{color:C.gold}}>{a.receiver.name}</span></div>
+                      <div className="AE">{a.giver.email}</div>
+                    </div>
+                    <div className="AI-actions" onClick={e=>e.stopPropagation()}>
+                      {/* Botón reenviar si hay error */}
+                      {ems[a.giver.id]==="err"&&(
+                        <button className="BXs re" title="Reenviar email" onClick={()=>resendEmail(a)}><Refresh/></button>
+                      )}
+                      {/* Botón editar email */}
+                      <button className="BXs ed" title="Editar email" onClick={()=>{
+                        if(editingEmail===a.giver.id){setEditingEmail(null);}
+                        else{setEditingEmail(a.giver.id);setEditEmailVal(a.giver.email);setPreviewFor(null);}
+                      }}><Edit/></button>
+                      <span className={`EB ${ems[a.giver.id]==="ok"?"ok":ems[a.giver.id]==="go"?"go":ems[a.giver.id]==="err"?"err":"no"}`}>
+                        {ems[a.giver.id]==="ok"?<><Check/> Enviado</>:ems[a.giver.id]==="go"?"Enviando...":ems[a.giver.id]==="err"?"Error":<><Mail/> Pendiente</>}
+                      </span>
+                    </div>
                   </div>
+                  {/* Editar email inline */}
+                  {editingEmail===a.giver.id&&(
+                    <div className="edit-email-row" onClick={e=>e.stopPropagation()}>
+                      <input type="email" value={editEmailVal} onChange={e=>setEditEmailVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveEditedEmail(a.giver.id);if(e.key==="Escape")setEditingEmail(null);}} autoFocus placeholder="nuevo@email.com"/>
+                      <button className="B Ba" onClick={()=>saveEditedEmail(a.giver.id)}>Guardar</button>
+                      <button className="B Bo" onClick={()=>setEditingEmail(null)}>✕</button>
+                    </div>
+                  )}
                   {previewFor===a.giver.id&&<div className="preview-box">{previewEmail(a)}<div className="preview-close" onClick={()=>setPreviewFor(null)}>cerrar ✕</div></div>}
                 </div>
               ))}
@@ -374,11 +485,12 @@ export default function App(){
             )}
             <div className="BR">
               <button className="B Bo" onClick={reset}>← Nuevo sorteo</button>
-              <button className="B Bs" onClick={sendAll} disabled={Object.values(ems).some(s=>s==="ok")}>
-                <Mail/> {Object.values(ems).some(s=>s==="ok")?"Emails enviados":"Enviar emails"}
+              <button className="B Bd" onClick={exportToExcel}><Download/> Excel</button>
+              <button className="B Bs" onClick={sendAll} disabled={allSent}>
+                <Mail/> {allSent?"Emails enviados":"Enviar emails"}
               </button>
             </div>
-            <p className="FN">⚠️ Prototipo — los emails se simulan. Para envío real, conectar con Resend.</p>
+            {someSent&&!allSent&&<p className="HN" style={{color:C.gold}}>Algunos emails fallaron — usa el botón 🔄 para reenviar</p>}
           </div>
         )}
       </div>
