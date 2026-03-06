@@ -25,7 +25,7 @@ export default async function handler(req, res) {
       method: "POST",
       headers: { Authorization: "Bearer " + RESEND_API_KEY, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "Amigo Invisible <onboarding@resend.dev>",
+        from: "Amigo Invisible <noreply@contact.yealva.es>",
         to: [to],
         subject: groupName ? "Tu amigo invisible - " + groupName : "Tu amigo invisible",
         html: html,
