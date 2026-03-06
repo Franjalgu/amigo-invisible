@@ -52,8 +52,12 @@ const FileText=()=><Ico s={16} d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 
 const Refresh=()=><Ico s={14} d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>;
 const Edit=()=><Ico s={14} d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>;
 const Download=()=><Ico s={16} d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>;
+const History=()=><Ico s={16} d="M12 8v4l3 3M3.05 11a9 9 0 1 0 .5-3"/>;
+const ArrowLeft=()=><Ico s={16} d="M19 12H5M12 5l-7 7 7 7"/>;
 
 const SESSION_KEY = "amigo-invisible-sorteo";
+const HISTORY_KEY = "amigo-invisible-historial";
+const MAX_HISTORY = 10;
 
 export default function App(){
   const [ps,setPs]=useState([]);
@@ -65,6 +69,7 @@ export default function App(){
   const [eventPlace,setEventPlace]=useState("");
   const [bud,setBud]=useState("");
   const [emailMsg,setEmailMsg]=useState("");
+  const [organizerEmail,setOrganizerEmail]=useState("");
   const [nm,setNm]=useState("");
   const [em,setEm]=useState("");
   const [ea,setEa]=useState("");
@@ -73,9 +78,11 @@ export default function App(){
   const [ems,setEms]=useState({});
   const [importResult,setImportResult]=useState(null);
   const [previewFor,setPreviewFor]=useState(null);
-  // Nuevo: editar email de destinatario
-  const [editingEmail,setEditingEmail]=useState(null); // giver.id
+  const [editingEmail,setEditingEmail]=useState(null);
   const [editEmailVal,setEditEmailVal]=useState("");
+  const [showHistory,setShowHistory]=useState(false);
+  const [history,setHistory]=useState([]);
+  const [organizerEmailSent,setOrganizerEmailSent]=useState(false);
   const nr=useRef(null);
   const fileRef=useRef(null);
 
@@ -95,16 +102,20 @@ export default function App(){
         if(d.bud) setBud(d.bud);
         if(d.emailMsg) setEmailMsg(d.emailMsg);
         if(d.ems) setEms(d.ems);
+        if(d.organizerEmail) setOrganizerEmail(d.organizerEmail);
       }
+      // Cargar historial de localStorage
+      const hist = localStorage.getItem(HISTORY_KEY);
+      if(hist) setHistory(JSON.parse(hist));
     } catch(e){}
   },[]);
 
   // --- SESIÓN: guardar al cambiar estado relevante ---
   useEffect(()=>{
     try {
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems}));
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems,organizerEmail}));
     } catch(e){}
-  },[ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems]);
+  },[ps,ex,res,step,grp,eventDate,eventPlace,bud,emailMsg,ems,organizerEmail]);
 
   const handleFileImport=(e)=>{
     const file=e.target.files?.[0]; if(!file)return;
@@ -176,9 +187,40 @@ export default function App(){
   };
 
   // Solo envía a los que están pendientes o con error (no los ya enviados)
-  const sendAll=()=>{
+  const sendAll=async()=>{
     const pending=res.filter(a=>ems[a.giver.id]!=="ok"&&ems[a.giver.id]!=="go");
-    pending.forEach((a,i)=>{setTimeout(()=>sendOneEmail(a),i*400);});
+    for(let i=0;i<pending.length;i++){
+      await new Promise(r=>setTimeout(r,i*400));
+      await sendOneEmail(pending[i]);
+    }
+  };
+
+  // Enviar email resumen al organizador
+  const sendOrganizerEmail=async(currentEms)=>{
+    if(!organizerEmail||organizerEmailSent)return;
+    try{
+      const dateStr=eventDate?new Date(eventDate+"T12:00:00").toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"";
+      const assignments=res.map(a=>({giverName:a.giver.name,giverEmail:a.giver.email,receiverName:a.receiver.name}));
+      await fetch("/api/send-email",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"organizer",to:organizerEmail,groupName:grp,assignments,budget:bud,eventDate:dateStr,eventPlace,message:emailMsg})});
+      setOrganizerEmailSent(true);
+    }catch(e){}
+  };
+
+  // Guardar sorteo en historial (localStorage)
+  const saveToHistory=()=>{
+    try{
+      const entry={
+        id:uid(),
+        date:new Date().toLocaleDateString("es-ES",{day:"numeric",month:"short",year:"numeric"}),
+        grp,eventDate,eventPlace,bud,
+        participants:res.map(a=>({giverName:a.giver.name,giverEmail:a.giver.email,receiverName:a.receiver.name})),
+        total:res.length,
+      };
+      const prev=JSON.parse(localStorage.getItem(HISTORY_KEY)||"[]");
+      const updated=[entry,...prev].slice(0,MAX_HISTORY);
+      localStorage.setItem(HISTORY_KEY,JSON.stringify(updated));
+      setHistory(updated);
+    }catch(e){}
   };
 
   // Reenviar email fallido
@@ -197,9 +239,20 @@ export default function App(){
     setErr("");
   };
 
+  // Detectar cuando todos los emails están enviados
+  useEffect(()=>{
+    if(!res||res.length===0)return;
+    const allOk=res.every(a=>ems[a.giver.id]==="ok");
+    if(allOk){
+      sendOrganizerEmail(ems);
+      saveToHistory();
+    }
+  },[ems]);
+
   const reset=()=>{
     setRes(null);setEms({});setStep("setup");setErr("");setPreviewFor(null);
     setPs([]);setEx([]);setGrp("");setEventDate("");setEventPlace("");setBud("");setEmailMsg("");
+    setOrganizerEmail("");setOrganizerEmailSent(false);
     sessionStorage.removeItem(SESSION_KEY);
   };
 
@@ -315,10 +368,22 @@ export default function App(){
         .lbl{font-size:.7rem;font-weight:600;color:${C.muted};text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
         .fg{margin-bottom:10px}
         .session-banner{background:${C.goldSoft};border:1px solid rgba(212,168,67,.25);border-radius:10px;padding:9px 13px;font-size:.76rem;color:${C.gold};margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+        .hist-btn{position:absolute;right:0;top:0;background:transparent;border:1px solid ${C.border};border-radius:8px;padding:5px 10px;color:${C.muted};cursor:pointer;font-size:.72rem;display:flex;align-items:center;gap:5px;transition:all .2s}
+        .hist-btn:hover{border-color:${C.accent};color:${C.accent}}
+        .hist-entry{background:${C.bg};border:1px solid ${C.border};border-radius:10px;padding:13px;margin-bottom:8px;animation:si .3s ease}
+        .hist-entry:hover{border-color:${C.gold};cursor:pointer}
+        .hist-date{font-size:.68rem;color:${C.muted};margin-bottom:3px}
+        .hist-name{font-weight:600;font-size:.9rem;font-family:'Crimson Pro',serif}
+        .hist-meta{font-size:.72rem;color:${C.muted};margin-top:3px}
+        .hist-assignments{margin-top:10px;display:flex;flex-direction:column;gap:3px}
+        .hist-row{font-size:.75rem;display:flex;align-items:center;gap:6px;padding:4px 8px;background:${C.card};border-radius:6px}
       `}</style>
       <Snow/>
       <div className="W">
-        <div className="H">
+        <div className="H" style={{position:"relative"}}>
+          <button className="hist-btn" onClick={()=>setShowHistory(!showHistory)}>
+            <History/> Historial {history.length>0&&`(${history.length})`}
+          </button>
           <div className="HI"><Gift/></div>
           <h1>Amigo <em>Invisible</em></h1>
           <p>Sortea, pon exclusiones y envía resultados por email</p>
@@ -332,8 +397,44 @@ export default function App(){
         {err&&<div className="ER">{err}</div>}
         {importResult&&<div className="OKB">✅ Importados: {importResult.added} participantes{importResult.exAdded>0&&`, ${importResult.exAdded} exclusiones`}{importResult.skipped>0&&` (${importResult.skipped} omitidos)`}</div>}
 
+        {/* HISTORIAL */}
+        {showHistory&&(
+          <div className="FA">
+            <div className="K">
+              <div className="KT"><History/> Historial de sorteos</div>
+              {history.length===0?(
+                <p style={{fontSize:".78rem",color:C.muted,textAlign:"center",padding:"20px 0"}}>Aún no hay sorteos guardados</p>
+              ):(
+                history.map(h=>(
+                  <div className="hist-entry" key={h.id}>
+                    <div className="hist-date">{h.date}</div>
+                    <div className="hist-name">{h.grp||"Sin nombre"}</div>
+                    <div className="hist-meta">
+                      {h.total} participantes
+                      {h.eventDate&&` · ${new Date(h.eventDate+"T12:00:00").toLocaleDateString("es-ES",{day:"numeric",month:"short"})}`}
+                      {h.eventPlace&&` · ${h.eventPlace}`}
+                      {h.bud&&` · ${h.bud}`}
+                    </div>
+                    <div className="hist-assignments">
+                      {h.participants.map((p,i)=>(
+                        <div className="hist-row" key={i}>
+                          <span style={{fontWeight:600}}>{p.giverName}</span>
+                          <span style={{color:C.gold}}>→</span>
+                          <span style={{color:C.gold,fontWeight:600}}>{p.receiverName}</span>
+                          <span style={{color:C.muted,marginLeft:"auto",fontSize:".68rem"}}>{p.giverEmail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+              <button className="B Bo BF" style={{marginTop:8}} onClick={()=>setShowHistory(false)}><ArrowLeft/> Volver</button>
+            </div>
+          </div>
+        )}
+
         {/* STEP 1: SETUP */}
-        {step==="setup"&&(
+        {!showHistory&&step==="setup"&&(
           <div className="FA">
             <div className="K">
               <div className="KT"><Gift/> Datos del evento</div>
@@ -355,6 +456,11 @@ export default function App(){
                 <div className="lbl">📍 Lugar (opcional)</div>
                 <input placeholder="Ej: Restaurante La Buena Vida" value={eventPlace} onChange={e=>setEventPlace(e.target.value)}/>
               </div>
+              <div className="fg">
+                <div className="lbl">📧 Tu email (organizador)</div>
+                <input type="email" placeholder="Ej: organizador@email.com" value={organizerEmail} onChange={e=>setOrganizerEmail(e.target.value)}/>
+                <p style={{fontSize:".68rem",color:C.muted,marginTop:4}}>Recibirás un resumen con todas las asignaciones cuando se envíen todos los emails.</p>
+              </div>
             </div>
             <div className="K">
               <div className="KT"><FileText/> Instrucciones para el email</div>
@@ -368,7 +474,7 @@ export default function App(){
         )}
 
         {/* STEP 2: PARTICIPANTS */}
-        {step==="add"&&(
+        {!showHistory&&step==="add"&&(
           <div className="FA">
             <div className="K">
               <div className="KT"><Upload/> Importar desde CSV</div>
@@ -407,7 +513,7 @@ export default function App(){
         )}
 
         {/* STEP 3: EXCLUSIONS */}
-        {step==="ex"&&(
+        {!showHistory&&step==="ex"&&(
           <div className="FA">
             <div className="K">
               <div className="KT"><Ban/> Exclusiones {ex.length>0&&<span className="bg">{ex.length}</span>}</div>
@@ -431,7 +537,7 @@ export default function App(){
         )}
 
         {/* STEP 4: RESULTS */}
-        {step==="done"&&res&&(
+        {!showHistory&&step==="done"&&res&&(
           <div className="FA">
             <div className="RH">
               <div className="BN">🎉</div>
