@@ -83,6 +83,7 @@ export default function App(){
   const [showHistory,setShowHistory]=useState(false);
   const [history,setHistory]=useState([]);
   const [organizerEmailSent,setOrganizerEmailSent]=useState(false);
+  const [sendOrganizerSummary,setSendOrganizerSummary]=useState(true);
   const nr=useRef(null);
   const fileRef=useRef(null);
 
@@ -197,7 +198,7 @@ export default function App(){
 
   // Enviar email resumen al organizador
   const sendOrganizerEmail=async(currentEms)=>{
-    if(!organizerEmail||organizerEmailSent)return;
+    if(!organizerEmail||organizerEmailSent||!sendOrganizerSummary)return;
     try{
       const dateStr=eventDate?new Date(eventDate+"T12:00:00").toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"";
       const assignments=res.map(a=>({giverName:a.giver.name,giverEmail:a.giver.email,receiverName:a.receiver.name}));
@@ -252,7 +253,7 @@ export default function App(){
   const reset=()=>{
     setRes(null);setEms({});setStep("setup");setErr("");setPreviewFor(null);
     setPs([]);setEx([]);setGrp("");setEventDate("");setEventPlace("");setBud("");setEmailMsg("");
-    setOrganizerEmail("");setOrganizerEmailSent(false);
+    setOrganizerEmail("");setOrganizerEmailSent(false);setSendOrganizerSummary(true);
     sessionStorage.removeItem(SESSION_KEY);
   };
 
@@ -459,7 +460,10 @@ export default function App(){
               <div className="fg">
                 <div className="lbl">📧 Tu email (organizador)</div>
                 <input type="email" placeholder="Ej: organizador@email.com" value={organizerEmail} onChange={e=>setOrganizerEmail(e.target.value)}/>
-                <p style={{fontSize:".68rem",color:C.muted,marginTop:4}}>Recibirás un resumen con todas las asignaciones cuando se envíen todos los emails.</p>
+                <label style={{display:"flex",alignItems:"center",gap:7,marginTop:7,cursor:"pointer",userSelect:"none"}}>
+                  <input type="checkbox" checked={sendOrganizerSummary} onChange={e=>setSendOrganizerSummary(e.target.checked)} style={{width:"auto",accentColor:C.accent,cursor:"pointer"}}/>
+                  <span style={{fontSize:".72rem",color:C.muted}}>Enviarme resumen con todas las asignaciones al completar</span>
+                </label>
               </div>
             </div>
             <div className="K">
