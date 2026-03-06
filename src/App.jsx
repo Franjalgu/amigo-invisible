@@ -175,7 +175,11 @@ export default function App(){
     }catch(e){setEms(p=>({...p,[a.giver.id]:"err"}));setErr("Error de conexion");}
   };
 
-  const sendAll=()=>{res.forEach((a,i)=>{setTimeout(()=>sendOneEmail(a),i*400);});};
+  // Solo envía a los que están pendientes o con error (no los ya enviados)
+  const sendAll=()=>{
+    const pending=res.filter(a=>ems[a.giver.id]!=="ok"&&ems[a.giver.id]!=="go");
+    pending.forEach((a,i)=>{setTimeout(()=>sendOneEmail(a),i*400);});
+  };
 
   // Reenviar email fallido
   const resendEmail=(a)=>{
@@ -187,7 +191,7 @@ export default function App(){
   const saveEditedEmail=(giverId)=>{
     if(!editEmailVal||!editEmailVal.includes("@"))return setErr("Email no válido");
     setRes(prev=>prev.map(a=>a.giver.id===giverId?{...a,giver:{...a.giver,email:editEmailVal}}:a));
-    setEms(p=>({...p,[giverId]:undefined}));
+    setEms(p=>({...p,[giverId]:"err"})); // marcar como err para mostrar botón reenviar
     setEditingEmail(null);
     setEditEmailVal("");
     setErr("");
